@@ -1,0 +1,140 @@
+// [[Todavia en desarrollo]]
+// Ejemplo basico de manejo de MPI en FreeFem++
+// En este ejemplo se resuelve el producto punto entre vectores empleando envios inmediatos
+// Se emplea el paso de mensajes punto a punto con envio no bloqueante de las porciones de trabajo
+// Requiere vectores generados con generadorVector.edp
+// Se debe ejecutar: mpirun -np <numero multiplo de 2> FreeFem++-mpi productoPuntoSync.edp
+// Precondicion: Los vectores generados por la otra script deben tener tamaño multiplo de 2
+// (c) J. Alvarez - 2017
+
+//--------------------- Declaracion de funciones ---------------------
+
+// Realiza la tarea local del producto punto con el pedazo correspondiente
+func int productoLocal(int[int,int] datos, int tamPedazo) {
+  int totalLocal = 0;
+  for(int i=0; i<tamPedazo; i++) {
+    totalLocal += datos(0,i)*datos(1,i);
+  }
+  return totalLocal;
+}
+
+func int productoLocalA(int[int] datosA, int[int] datosB, int tamPedazo) {
+  int totalLocal = 0;
+  for(int i=0; i<tamPedazo; i++) {
+    totalLocal += datosA[i]*datosB[i];
+  }
+  return totalLocal;
+}
+
+//--------------------- Inicio del programa ---------------------
+
+if (mpisize%2 != 0) {
+  cout << "Solo se permite indicar una cantidad multiplo de 2!!!\n";
+  exit(1);
+}
+else{
+   // Elementos generales para todos los procesos
+   int tam;
+   {
+     ifstream flujo("a.txt");
+     flujo >> tam;
+   }
+
+   int longPedazo = tam/mpisize;  // Tamaño del pedazo de datos que le corresponde a cada proceso
+   //int[int,int] datos(2,longPedazo);
+   int[int] datosA(longPedazo);
+   int[int] datosB(longPedazo);
+   int datoI;
+
+   mpiRequest solicitudA;
+   mpiRequest solicitudB;
+  
+   //--------------------- MASTER ---------------------
+
+   if (mpirank == 0) { // Al maestro le corresponde inicializar, leer, designar, trabajar, recibir, y procesar todo
+     
+     real horaInicio = mpiWtime();
+
+     // Inicializacion de elementos 
+     int[int] a(tam);
+     int[int] b(tam);
+
+     int inicioPorcion = 0; // Indice de inicio de la porcion que le corresponde a cada proceso
+     int productoTotal = 0;
+
+     // Se leen los vectores
+     {
+       ifstream flujo("a.txt");
+       flujo >> a;
+     }
+     {
+       ifstream flujo("b.txt");
+       flujo >> b;
+     }
+
+	 cout << "Maestro ha leido a: " << a << "\n y b: " << b << endl;
+
+	 int[int,int] pedazosA(mpisize-1,longPedazo);
+	 int[int,int] pedazosB(mpisize-1,longPedazo);
+ 
+     // Se designan las tareas a los esclavos. Esta solucion es por envio de sub-arreglos (indices: 0..longPedazo).
+     // Otra solucion seria por relleno de vector compartido (indices: inicioPorcion..inicioPorcion+longPedazo).
+	 	 
+     for (int i=1; i<mpisize; i++) {
+       inicioPorcion = i*longPedazo;
+
+	   pedazosA(i-1,:) = a(inicioPorcion:inicioPorcion+longPedazo-1);
+	   pedazosB(i-1,:) = b(inicioPorcion:inicioPorcion+longPedazo-1);
+	   
+	   cout << "Maestro envia al proceso " << i << " a: " << pedazosA(i-1,:) << "\n y b: " << pedazosB(i-1,:);
+	   cout << "Porque pedazo inicia en: " << inicioPorcion << endl;
+
+	   Isend(processor(i,mpiCommWorld,solicitudA),pedazosA(i-1,:));
+	   Isend(processor(i,mpiCommWorld,solicitudB),pedazosB(i-1,:));
+	   
+       //Isend(processor(i,mpiCommWorld,solicitudA),a(inicioPorcion:inicioPorcion+longPedazo-1)); // Envio asincriono
+       //Isend(processor(i,mpiCommWorld,solicitudB),b(inicioPorcion:inicioPorcion+longPedazo-1)); // Envio asincriono
+	   //mpiWait(solicitudA);
+  	   //mpiWait(solicitudB);
+     }
+     
+     //inicioPorcion = 0; // Reiniciando este valor para que el maestro saque su porcion
+     
+     // Hace el mismo trabajo que los esclavos con su propia porcion
+     
+     int[int] pedazoA = a(0:longPedazo-1);
+     int[int] pedazoB = b(0:longPedazo-1);   
+    
+     int producto = productoLocalA(pedazoA,pedazoB,longPedazo); // si no funciona, hacer envio de mensaje de tamaño
+	 cout << "\n<<<<<<<<<<<<< soy el maestro y trabajo con\na: " << pedazoA << "\nb: " << pedazoB << "\nDebo sumar: " << producto << endl;
+	 
+	 productoTotal += producto;
+     
+     // Recibe los trabajos hechos por los esclavos
+     for (int i=1; i<mpisize; i++) {
+       int productoLocal;
+       Recv(processor(i,mpiCommWorld),productoLocal);
+       productoTotal += productoLocal;
+     }
+
+     real horaFin = mpiWtime();
+     
+     //--------------------- Fin del programa ---------------------
+     cout.fixed;
+     cout.precision(8);
+
+     cout << "\nFin del programa... el producto punto de a*b es: " << productoTotal << "\n\nSe demoro: " << horaFin-horaInicio << " segundos!!!\n\n";
+   }
+
+   //--------------------- SLAVES ---------------------
+
+   else { // Los esclavos reciben, procesan y envian de vuelta la solucion
+  	 mpiWait(solicitudA);
+ 	 mpiWait(solicitudB);
+	 Recv(processor(0,mpiCommWorld),datosA);
+	 Recv(processor(0,mpiCommWorld),datosB);
+     int producto = productoLocalA(datosA,datosB,longPedazo); // si no funciona, hacer envio de mensaje de tamaño
+	 cout << "\n<<<<<<<<<<<<< soy el esclavo << "<< mpirank << " y trabajo con a: " << datosA << "\nb: " << datosB << "\nDebo retornar a maestro: " << producto << endl;
+     Send(processor(0,mpiCommWorld),producto);
+   }
+}

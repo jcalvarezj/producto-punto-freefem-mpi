@@ -1,0 +1,45 @@
+verbosity = 0;
+// En este ejemplo se resuelve el producto punto entre vectores de manera serial
+// Requiere vectores generados con generadorVector.edp
+// Precondicion: Los vectores generados por la otra script deben tener tamaño multiplo de 2
+// (c) J. Alvarez - 2017
+
+//--------------------- Declaracion de funciones ---------------------
+
+func int productoSerial(int[int] va, int[int] vb, int tam) {
+  int total = 0;
+  for (int i=0; i<tam; i++)
+    total += va[i]*vb[i];
+  return total;
+}
+
+//--------------------- Inicio del programa ---------------------
+
+// Elementos generales para todos los procesos
+int tam;
+{
+  ifstream flujo("a.txt");
+  flujo >> tam;
+}
+
+real horaInicio = clock();
+
+// Inicializacion de elementos 
+int[int] a(tam);
+int[int] b(tam);
+
+// Se leen los vectores
+{
+  ifstream flujo("a.txt");
+  flujo >> a;
+}
+{
+  ifstream flujo("b.txt");
+  flujo >> b;
+}
+
+//--------------------- Fin del programa ---------------------
+cout.fixed;
+cout.precision(8);
+
+cout << "\nFin del programa... el producto punto de a*b es: " << productoSerial(a,b,a.n) << "\n\nSe demoro: " << clock()-horaInicio << " segundos!!!\n\n";

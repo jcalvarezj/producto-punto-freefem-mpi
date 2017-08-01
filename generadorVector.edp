@@ -1,0 +1,43 @@
+// Programa para generar vectores para multiplicar
+// Recibe por argumento un numero <n>, tal que el tamanio del vector sera 4*n
+// Ejecutese: FreeFem++ generadorVector.edp <n>
+
+//load "ffrandom";
+
+verbosity = 0;
+exec("rm a.txt");
+exec("rm b.txt");
+
+int tam = 4*atoi(ARGV[2]);
+
+if (tam <= 0) {
+  cout << "Tamanio debe ser un numero mayor a 0!!!!\n";
+  exit(0);
+}
+
+int[int] a(tam);
+int[int] b(tam);
+
+//srandomdev();
+//srandom(10);
+int semilla = clock()*1000000+250;
+//cout << "con aaa " << semilla << endl;
+randinit(semilla);
+
+for (int i=0; i<2*tam; i++) {
+  if (i<tam)
+    a[i] = floor(randreal1()*100);
+  else
+    b[i-tam] = floor(randreal1()*100);
+}
+
+{
+  ofstream flujo("a.txt");
+  flujo << a;
+}
+{
+  ofstream flujo("b.txt");
+  flujo << b;
+}
+
+cout << "Se han generado exitosamente los vectores en los archivos a.txt y b.txt!!!!!!\n\n";
