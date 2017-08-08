@@ -1,0 +1,120 @@
+// Ejemplo basico de manejo de MPI en FreeFem++
+// En este ejemplo se resuelve el producto punto entre vectores de manera sincrona
+// Se emplea el paso de mensajes punto a punto sincrono
+// Requiere vectores generados con generadorVector.edp
+// Se debe ejecutar: mpirun -np <numero multiplo de 2> FreeFem++-mpi productoPuntoSync.edp
+// Precondicion: Los vectores generados por la otra script deben tener tamaño multiplo de 2
+// (c) J. Alvarez - 2017
+
+//--------------------- Declaracion de funciones ---------------------
+
+// Realiza la tarea local del producto punto con el pedazo correspondiente
+func int productoLocal(int[int] vA, int[int] vB, int tamPedazo) {
+  int totalLocal = 0;
+  for(int i=0; i<tamPedazo; i++)
+    totalLocal += vA[i]*vB[i];
+  return totalLocal;
+}
+
+//--------------------- Inicio del programa ---------------------
+
+if (mpisize%4 != 0) {
+  cout << "Solo se permite indicar una cantidad multiplo de 4!!!\n";
+  exit(1);
+}
+else{ 
+   // Elementos generales para todos los procesos
+   int tam;
+   {
+     ifstream flujo("a.txt");
+     flujo >> tam;
+   }
+
+   real horaInicio;
+   int longPedazo = tam/mpisize;  // Tamaño del pedazo de datos que le corresponde a cada proceso
+   int inicioPorcion = mpirank*longPedazo; // Indice de inicio de la porcion que le corresponde a cada proceso
+
+   //int[int,int] pedazosA(mpisize,longPedazo); // Error, FreeFem reparte al contrario (columnas)
+   int[int,int] pedazosA(longPedazo,mpisize);
+   int[int,int] pedazosB(longPedazo,mpisize);
+   int[int] pedazoLocalA(longPedazo);
+   int[int] pedazoLocalB(longPedazo);
+   
+   //--------------------- MASTER ---------------------
+
+   if (mpirank == 0) { // Al maestro le corresponde inicializar, leer, designar, trabajar, recibir, y procesar todo
+
+	 cout << "Repartiendo porciones" << endl;
+	 
+     horaInicio = mpiWtime();
+
+     // Inicializacion de elementos 
+     int[int] a(tam);
+     int[int] b(tam);
+
+     // Se leen los vectores
+     {
+       ifstream flujo("a.txt");
+       flujo >> a;
+     }
+     {
+       ifstream flujo("b.txt");
+       flujo >> b;
+     }
+ 
+	 /*for (int i=0; i<mpisize; i++) {
+	   for (int j=0; j<longPedazo; j++) {
+	 	 pedazosA(i,j) = a[i*longPedazo+j];
+	 	 pedazosB(i,j) = b[i*longPedazo+j];
+	   }
+	 }*/
+
+	 for (int i=0; i<mpisize; i++) {
+	   for (int j=0; j<longPedazo; j++) {
+	 	 pedazosA(j,i) = a[i*longPedazo+j];
+	 	 pedazosB(j,i) = b[i*longPedazo+j];
+	   }
+	 }
+	 
+	 //cout << "Las porciones son: a: " << pedazosA << "\nb: " << pedazosB << endl;
+	 cout << "Se han repartido porciones" << endl;
+   }
+
+    mpiScatter(pedazosA,pedazoLocalA,processor(0));
+    mpiScatter(pedazosB,pedazoLocalB,processor(0));
+
+	//cout << "Soy el proceso " << mpirank << " y tengo los pedazos: " << pedazoLocalA << "\n y " << pedazoLocalB;  
+   
+   int productoTotal = 0;
+
+   if(mpirank == 0) {
+
+	 //cout << "\n<<<<<<<<<<<<< soy el maestro y trabajo con a:" << pedazoLocalA << "\nb:" << pedazoLocalB << endl;
+	 
+ 	 productoTotal += productoLocal(pedazoLocalA,pedazoLocalB,longPedazo);
+	 
+     // Recibe los trabajos hechos por los esclavos
+     for (int i=1; i<mpisize; i++) {
+       int productoLocal;
+       Recv(processor(i,mpiCommWorld),productoLocal);
+       productoTotal += productoLocal;
+     }
+	 
+     //--------------------- Fin del programa ---------------------
+	 real horaFin = mpiWtime();
+	 
+     cout.fixed;
+     cout.precision(8);
+
+     cout << "\nFin del programa... el producto punto de a*b es: " << productoTotal << "\n\nSe demoro: " << horaFin-horaInicio << " segundos!!!\n\n";
+   }
+
+   //--------------------- SLAVES ---------------------
+
+   else { // Los esclavos reciben, procesan y envian de vuelta la solucion
+     int producto = productoLocal(pedazoLocalA,pedazoLocalB,longPedazo); // si no funciona, hacer envio de mensaje de tamaño
+	 //cout << "\n<<<<<<<<<<<<< soy el esclavo << "<< mpirank << " y trabajo con a:" << pedazoLocalA << "\nb:" << pedazoLocalB << "... debo retornar: " << producto << endl;
+     Send(processor(0,mpiCommWorld),producto);
+   }
+   
+}
